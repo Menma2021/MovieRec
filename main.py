@@ -1,19 +1,21 @@
-# main_app.py
 import tkinter as tk
 from tkinter import ttk, messagebox
-from recommendation import recommend_movies_by_genre, recommend_movies, movies
+from recommendation import recommend_movies_by_genre, recommend_movies, recommend_from_user_list, movies, \
+    user_movie_sparse, movie_ids
 
 
 class MovieRecommenderApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Movie Recommendation System")
-        self.root.geometry("600x400")
+        self.root.geometry("600x600")
 
-        # UI components
+        # Sparse matrix and movie IDs
+        self.user_movie_sparse = user_movie_sparse
+        self.movie_ids = movie_ids
+        self.movies = movies
+
         self.create_widgets()
-
-        # User's movie list and ratings
         self.movie_list = {}
 
     def create_widgets(self):
@@ -24,36 +26,49 @@ class MovieRecommenderApp:
         self.search_button = ttk.Button(self.root, text="Search", command=self.search_movie)
         self.search_button.grid(row=0, column=1, padx=10, pady=10)
 
-        # Autocomplete dropdown
+        # Autocomplete
         self.movie_listbox = tk.Listbox(self.root, height=5)
         self.movie_listbox.grid(row=1, column=0, columnspan=2, padx=10, pady=10)
         self.movie_listbox.bind("<<ListboxSelect>>", self.on_movie_select)
 
-        # Slider
+        # Rating slider
         self.rating_var = tk.IntVar(value=3)
         self.rating_slider = ttk.Scale(self.root, from_=1, to=5, orient="horizontal", variable=self.rating_var)
         self.rating_slider.grid(row=2, column=0, padx=10, pady=10)
         self.rating_label = ttk.Label(self.root, text="Rating (1-5)")
         self.rating_label.grid(row=2, column=1, padx=10, pady=10)
 
-        # Adding to list
+        # Add to list button
         self.add_button = ttk.Button(self.root, text="Add to List", command=self.add_movie_to_list)
         self.add_button.grid(row=3, column=0, padx=10, pady=10)
 
-        # View list
-        self.view_list_button = ttk.Button(self.root, text="View My List", command=self.view_movie_list)
-        self.view_list_button.grid(row=3, column=1, padx=10, pady=10)
+        # Remove from list button
+        self.remove_button = ttk.Button(self.root, text="Remove from List", command=self.remove_movie_from_list)
+        self.remove_button.grid(row=3, column=1, padx=10, pady=10)
 
-        # Recommendation buttons
+        # View list button
+        self.view_list_button = ttk.Button(self.root, text="View My List", command=self.view_movie_list)
+        self.view_list_button.grid(row=4, column=0, padx=10, pady=10)
+
+        # Recommendation button
         self.rec_button = ttk.Button(self.root, text="Recommend (Content)", command=self.recommend_content_based)
-        self.rec_button.grid(row=4, column=0, padx=10, pady=10)
+        self.rec_button.grid(row=5, column=0, padx=10, pady=10)
+
+        self.rec_user_button = ttk.Button(self.root, text="Recommend (Based on List)",
+                                          command=self.recommend_user_based)
+        self.rec_user_button.grid(row=5, column=1, padx=10, pady=10)
+
+        # Collaborative filtering
+        self.user_id_var = tk.StringVar()
+        self.user_id_entry = ttk.Entry(self.root, textvariable=self.user_id_var, width=10)
+        self.user_id_entry.grid(row=6, column=0, padx=10, pady=10)
         self.rec_collab_button = ttk.Button(self.root, text="Recommend (Collaborative)",
                                             command=self.recommend_collaborative_based)
-        self.rec_collab_button.grid(row=4, column=1, padx=10, pady=10)
+        self.rec_collab_button.grid(row=6, column=1, padx=10, pady=10)
 
-        # Output
+        # Recommendation output
         self.output_box = tk.Text(self.root, height=10, width=70)
-        self.output_box.grid(row=5, column=0, columnspan=2, padx=10, pady=10)
+        self.output_box.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
 
     def search_movie(self):
         # Autocomplete
@@ -78,34 +93,64 @@ class MovieRecommenderApp:
         else:
             messagebox.showwarning("Warning", "No movie selected")
 
+    def remove_movie_from_list(self):
+        # Removing movie from the user's list
+        movie_name = self.search_var.get()
+        if movie_name in self.movie_list:
+            del self.movie_list[movie_name]
+            messagebox.showinfo("Success", f"Removed '{movie_name}' from your list")
+        else:
+            messagebox.showwarning("Warning", "Movie not in your list")
+
     def view_movie_list(self):
-        # Show the user's movie list
-        movie_list_str = "\n".join([f"{movie}: {rating}" for movie, rating in self.movie_list.items()])
+        # Viewing user's movie list
         self.output_box.delete(1.0, tk.END)
-        self.output_box.insert(tk.END, "My Movie List:\n")
-        self.output_box.insert(tk.END, movie_list_str)
+        if not self.movie_list:
+            self.output_box.insert(tk.END, "Your movie list is empty.")
+        else:
+            self.output_box.insert(tk.END, "Your movie list:\n")
+            for movie, rating in self.movie_list.items():
+                self.output_box.insert(tk.END, f"{movie}: {rating}/5\n")
 
     def recommend_content_based(self):
-        # Recommend based on a selected movie's genre
+        # Content-based filtering
         movie_name = self.search_var.get()
         if movie_name:
             recommendations = recommend_movies_by_genre(movie_name)
-            self.output_box.delete(1.0, tk.END)
-            self.output_box.insert(tk.END, f"Recommendations based on '{movie_name}':\n")
-            for _, row in recommendations.iterrows():
-                self.output_box.insert(tk.END, f"{row['title']} - {row['genres']}\n")
+            self.show_recommendations(recommendations)
         else:
             messagebox.showwarning("Warning", "No movie selected")
 
+    def recommend_user_based(self):
+        # User-specific collaborative filtering
+        if not self.movie_list:
+            messagebox.showwarning("Warning", "Your movie list is empty")
+        else:
+            recommendations = recommend_from_user_list(
+                list(self.movie_list.keys()), user_movie_sparse, movie_ids, movies, num_recommendations=5
+            )
+            self.show_recommendations(recommendations)
+
     def recommend_collaborative_based(self):
-        # Recommend movies for a user (ID = 1 for now)
-        recommendations = recommend_movies(user_id=1)
+        # ID-specific collaborative filtering
+        user_id = self.user_id_var.get()
+        if user_id.isdigit():
+            recommendations = recommend_movies(int(user_id))
+            self.show_recommendations(recommendations)
+        else:
+            messagebox.showwarning("Warning", "Enter a valid User ID")
+
+    def show_recommendations(self, recommendations):
         self.output_box.delete(1.0, tk.END)
-        self.output_box.insert(tk.END, "Collaborative Recommendations:\n")
-        for _, row in recommendations.iterrows():
-            self.output_box.insert(tk.END, f"{row['title']} - {row['genres']}\n")
+        if recommendations.empty:
+            self.output_box.insert(tk.END, "No recommendations found.")
+        else:
+            self.output_box.insert(tk.END, "Recommended Movies:\n")
+            for index, row in recommendations.iterrows():
+                self.output_box.insert(tk.END, f"{row['title']} - {row['genres']}\n")
 
 
+# Run the app
 if __name__ == "__main__":
     root = tk.Tk()
     app = MovieRecommenderApp(root)
