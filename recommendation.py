@@ -14,8 +14,8 @@ ratings_path = os.path.join(os.path.dirname(__file__), 'ml-32m', 'ratings.csv')
 movies = pd.read_csv(movies_path)
 ratings = pd.read_csv(ratings_path)
 
-# Limit to 40000 movies due to perfomance issues
-top_movies = ratings.groupby('movieId').size().nlargest(40000).index
+# Limit to 60000 movies due to perfomance issues
+top_movies = ratings.groupby('movieId').size().nlargest(60000).index
 movies = movies[movies['movieId'].isin(top_movies)]
 
 # Movies + rankings merge
@@ -30,10 +30,23 @@ movie_similarity = cosine_similarity(tfidf_matrix)
 
 
 def recommend_movies_by_genre(movie_name, num_recommendations=5):
+    # Ensure the movie exists within the top 60,000 movies
+    if movie_name not in movies['title'].values:
+        print(f"Movie '{movie_name}' not found in the top 60,000 movies.")
+        return pd.DataFrame()  # Return an empty DataFrame if the movie is not found
+
     movie_idx = movies[movies['title'] == movie_name].index[0]
+
+    # Check if movie_idx is within bounds (less than the size of the movie_similarity matrix)
+    if movie_idx >= len(movie_similarity):
+        print(f"Movie '{movie_name}' is outside the top 60,000 movies for recommendations.")
+        return pd.DataFrame()
+
     similar_movies = np.argsort(-movie_similarity[movie_idx])
     similar_movie_indices = similar_movies[:num_recommendations]
+
     return movies.iloc[similar_movie_indices][['title', 'genres']]
+
 
 
 # Collaborative filtering
@@ -62,51 +75,42 @@ def recommend_movies(user_id, num_recommendations=5):
     return movies[movies['movieId'].isin(recommended_movie_ids)][['title', 'genres']]
 
 
-# Recommendation based on the user's rated movies list
-def recommend_from_user_list(user_rated_movies, user_movie_sparse, movie_ids, movies_df, model_knn, num_recommendations=5):
-    # Ensure movieId is a categorical column
-    if not pd.api.types.is_categorical_dtype(movies_df['movieId']):
-        movies_df['movieId'] = movies_df['movieId'].astype('category')
+def recommend_from_user_list(user_rated_movies, user_movie_sparse, movie_ids, movies_df, model_knn,
+                             num_recommendations=5):
+    # Convert movie titles to movie IDs
+    rated_movie_ids = movies_df[movies_df['title'].isin(user_rated_movies)]['movieId']
 
-    # Indices of rated movies
-    rated_movie_indices = movies_df[movies_df['title'].isin(user_rated_movies)]['movieId'].cat.codes
+    # Ensure the movie IDs are only from the top 60,000 movies used in training
+    top_movie_ids = movie_ids  # This corresponds to the top 60,000 movie IDs
+    valid_movie_ids = rated_movie_ids[rated_movie_ids.isin(top_movie_ids)]
 
-    # Empty if empty
-    if len(rated_movie_indices) == 0:
+    # Convert to sparse matrix column indices (since we use the sparse matrix)
+    valid_movie_indices = np.searchsorted(top_movie_ids, valid_movie_ids)
+
+    if len(valid_movie_indices) == 0:
+        print("No valid rated movies found for recommendation.")
         return pd.DataFrame()
 
-    # Avarage rantings from similar users
-    similar_users_ratings = np.zeros(user_movie_sparse.shape[1])
+    # Get the columns corresponding to these movies from the user-movie sparse matrix
+    movie_column = user_movie_sparse[:, valid_movie_indices].mean(axis=1)
 
-    for movie_idx in rated_movie_indices:
-        movie_column = user_movie_sparse[:, movie_idx].toarray().flatten()
+    # Reshape to pass to KNN (should have the same number of features as model_knn was trained on)
+    movie_column_reshaped = np.asarray(movie_column).reshape(1, -1)[:, :60000]  # Convert to numpy array, limit to 40,000 features
 
-        # Input shape for kneighbors
-        movie_column_reshaped = movie_column.reshape(1, -1)
+    # Get similar users based on the rated movies
+    distances, indices = model_knn.kneighbors(movie_column_reshaped, n_neighbors=10)
 
-        # K-nearest neighbors who rated the same movies
-        distances, indices = model_knn.kneighbors(movie_column_reshaped, n_neighbors=10)
-        similar_users_indices = indices.flatten()
+    # Aggregate ratings from similar users
+    similar_users_ratings = user_movie_sparse[indices.flatten()].mean(axis=0).A1
 
-        # Mean rating from similar users
-        user_ratings = user_movie_sparse[similar_users_indices].mean(axis=0).A1
+    # Sort movies by predicted rating and recommend the top ones
+    unrated_movie_indices = np.where(user_movie_sparse[:, valid_movie_indices].sum(axis=1) == 0)[0]
+    unrated_movie_indices = unrated_movie_indices[unrated_movie_indices < 60000]  # Ensure they are within bounds
+    recommended_movie_indices = np.argsort(-similar_users_ratings[unrated_movie_indices])[:num_recommendations]
 
-        # Add to overall score
-        similar_users_ratings += user_ratings
-
-    # Remove reviewed movies
-    user_ratings = user_movie_sparse[:, rated_movie_indices].mean(axis=0).A1
-    unrated_movies_idx = np.where(user_ratings == 0)[0]
-
-    # If nothing - return empty
-    if len(unrated_movies_idx) == 0:
-        return pd.DataFrame()
-
-    # Sort movies by predicted ratings
-    recommended_movies_idx = np.argsort(-similar_users_ratings[unrated_movies_idx])[:num_recommendations]
-
-    # Get movie IDs and titles
-    recommended_movie_ids = movie_ids[unrated_movies_idx[recommended_movies_idx]]
-
+    recommended_movie_ids = movie_ids[recommended_movie_indices]
     return movies_df[movies_df['movieId'].isin(recommended_movie_ids)][['title', 'genres']]
+
+
+
 

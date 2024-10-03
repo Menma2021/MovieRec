@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from sklearn.neighbors import NearestNeighbors
 from recommendation import recommend_movies_by_genre, recommend_movies, recommend_from_user_list, movies, \
     user_movie_sparse, movie_ids
 
@@ -14,6 +15,8 @@ class MovieRecommenderApp:
         self.user_movie_sparse = user_movie_sparse
         self.movie_ids = movie_ids
         self.movies = movies
+        self.model_knn = NearestNeighbors(metric='cosine', algorithm='brute', n_neighbors=10, n_jobs=-1)
+        self.model_knn.fit(self.user_movie_sparse)
 
         self.create_widgets()
         self.movie_list = {}
@@ -122,14 +125,24 @@ class MovieRecommenderApp:
             messagebox.showwarning("Warning", "No movie selected")
 
     def recommend_user_based(self):
-        # User-specific collaborative filtering
-        if not self.movie_list:
-            messagebox.showwarning("Warning", "Your movie list is empty")
-        else:
-            recommendations = recommend_from_user_list(
-                list(self.movie_list.keys()), user_movie_sparse, movie_ids, movies, num_recommendations=5
-            )
+        # Get user-rated movies
+        user_rated_movies = list(self.movie_list.keys())
+
+        # Call the recommendation function with model_knn
+        recommendations = recommend_from_user_list(
+            user_rated_movies,
+            self.user_movie_sparse,
+            movie_ids,
+            self.movies,
+            self.model_knn,
+            num_recommendations=5
+        )
+
+        # Display recommendations
+        if not recommendations.empty:
             self.show_recommendations(recommendations)
+        else:
+            self.display_message("No recommendations available.")
 
     def recommend_collaborative_based(self):
         # ID-specific collaborative filtering
