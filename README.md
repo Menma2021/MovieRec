@@ -30,7 +30,7 @@ This project is a Movie Recommendation System using Tkinter for the GUI and the 
   ```bash
   pip install pandas numpy scikit-learn
   ```
-3. Ensure the MovieLens dataset CSV files (movies.csv, ratings.csv) are placed in the correct directory (ml-32m).
+3. Ensure the MovieLens dataset CSV files (ratings.csv needs to be set up individually due to large size. Use MovieLens 32M from 05/2024) are placed in the correct directory (ml-32m).
 
 4. Run the application
 
