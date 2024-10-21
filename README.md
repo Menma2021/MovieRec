@@ -55,6 +55,8 @@ This project is a Movie Recommendation System using Tkinter for the GUI and the 
 - Recommendation Output:
   Recommended movies are displayed in a text box showing the title and genre of each suggestion
 
+- You can also use rmse.py for Root Mean Square Error evaluation of recomendation system
+
 ## Future Improvements
 - Improve UI, probably make it web-based
 - Add more sophisticated recommendation algorithms (e.g., hybrid models)
