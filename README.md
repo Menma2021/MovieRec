@@ -26,7 +26,7 @@ This project is a Movie Recommendation System using Tkinter for the GUI and the 
   git clone https://github.com/Menma2021/MovieRec.git
   cd MovieRec
   ```
-2. Install necessary libraries (or use environment in a repository)
+2. Install necessary libraries
   ```bash
   pip install pandas numpy scikit-learn
   ```
